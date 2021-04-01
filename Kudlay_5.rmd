@@ -1,0 +1,717 @@
+---
+title: "Упражнение 5"
+author: "Кудлай Яна"
+date: "31 03 2021"
+output: html_document
+---
+
+## Вариант 16
+
+1 Оценить стандартную ошибку модели для линейных регрессионных моделей из упражнения 4 (варианты ниже): а) со всеми объясняющими переменными; б) только с непрерывными объясняющими переменными:
+
+ - методом проверочной выборки с долей обучающей 50%;
+
+ - методом LOOCV;
+
+ - k-кратной кросс-валидацией с k=5 и k=10.
+
+Выбрать лучшую модель по минимуму ошибки. Все ли методы кросс-валидации сходятся на одной и той же модели?
+
+
+2 Оценить стандартные ошибки параметров лучшей модели регрессии методом бутстрепа. Вывести график остатков лучшей модели. Сравнить с оценками стандартных ошибок параметров по МНК.
+
+
+```{r setup, include=FALSE}
+
+# загрузка пакетов
+library('ISLR')         # загружаем пакет
+library('GGally')       # графики совместного разброса переменных
+library('lmtest')       # тесты остатков регрессионных моделей
+library('FNN')          # алгоритм kNN
+library('boot')              # расчёт ошибки с кросс-валидацией
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Описание переменных
+
+Набор данных *College*  содержит переменные:
+
+*Accept* - Количество принятых заявок;
+
+*PhD* - Пкт. факультета с докторскими степенями;
+
+*Books* - Расчетные балансовые затраты;
+
+*Personal* - Расчетные личные расходы;
+
+*Private* - Фактор с уровнями Нет и Да указывающий на частный или государственный университет;
+
+Размерность обучающей выборки: n = 777 строк, p = 4 объясняющих переменных. Зависимая переменная – *Accept*. Дискретная переменная - *Private*
+
+
+
+### Метод перекрёстной проверки
+
+Рассмотрим данные с характеристиками города College из пакета MASS. Скопируем таблицу во фрейм DF.college для дальнейших манипуляций.
+
+
+```{r}
+
+my.seed <- 16
+
+DF.college <- subset(College, select = c(Accept, PhD, Books, Personal, Private))
+
+#DF.college <- College
+
+head(DF.college)
+
+str(DF.college) 
+
+```
+
+
+## Oписательные статистики по переменным
+
+```{r}
+
+summary(DF.college)
+
+```
+
+В таблице данных 777 наблюдений и 4 переменных, среди которых есть непрерывные количественные и дискретные количественные. В данном случае по функции summary() сложно определить реальные типы переменных, помогает table() от отдельных столбцов таблицы: если уникальных значений немного, перед нами фактор.
+
+
+#### Количество цилиндров
+
+```{r}
+
+table(DF.college$Private)
+
+```
+
+
+Построим графики разброса, показав факторы *Private* (государственный или частный вуз)  цветом. Зависимой переменной модели является *Accept*, её покажем в первой строке / столбце матричного графика. Во вторую строку / столбец поставим фактор.
+
+
+```{r}
+
+# переводим дискретные количественные переменные в факторы
+DF.college$Private <- as.factor(DF.college$Private)
+
+# графики разброса, цвет -- количество цилиндров
+ggpairs(DF.college[, c(1, 2, 5)], ggplot2::aes(color = Private))
+
+ggpairs(DF.college[, c(1, 3, 5)], ggplot2::aes(color = Private))
+
+ggpairs(DF.college[, c(1, 4, 5)], ggplot2::aes(color = Private))
+```
+
+
+## Метод проверочной выборки
+
+Он состоит в том, что мы отбираем одну тестовую выборку и будем считать на ней ошибку модели
+
+```{r}
+# общее число наблюдений
+n <- nrow(DF.college)
+
+# доля обучающей выборки
+train.percent <- 0.5
+
+# выбрать наблюдения в обучающую выборку
+set.seed(my.seed)
+inTrain <- sample(1:n, n * train.percent)
+
+# фактические значения Y на тестовой выборке
+y.test.fact <- DF.college$Accept[-inTrain]
+
+# рисуем разными цветами обучающую и тестовую
+plot(DF.college$PhD [inTrain], DF.college$Accept[inTrain],
+     xlab = 'PhD ', ylab = 'Accept', pch = 21,
+     col = rgb(0, 0, 1, alpha = 0.4), bg = rgb(0, 0, 1, alpha = 0.4))
+points(DF.college$PhD [-inTrain], DF.college$Accept[-inTrain],
+       pch = 21, col = rgb(1, 0, 0, alpha = 0.4), 
+       bg = rgb(1, 0, 0, alpha = 0.4))
+legend('topright', 
+       pch = c(16, 16), col = c('blue', 'red'), legend = c('test', 'train'))
+
+plot(DF.college$Personal[inTrain], DF.college$Accept[inTrain],
+     xlab = 'Personal', ylab = 'Accept', pch = 21,
+     col = rgb(0, 0, 1, alpha = 0.4), bg = rgb(0, 0, 1, alpha = 0.4))
+points(DF.college$Personal[-inTrain], DF.college$Accept[-inTrain],
+       pch = 21, col = rgb(1, 0, 0, alpha = 0.4), 
+       bg = rgb(1, 0, 0, alpha = 0.4))
+legend('topright', 
+       pch = c(16, 16), col = c('blue', 'red'), legend = c('test', 'train'))
+
+plot(DF.college$Books[inTrain], DF.college$Accept[inTrain],
+     xlab = 'Books', ylab = 'Accept', pch = 21,
+     col = rgb(0, 0, 1, alpha = 0.4), bg = rgb(0, 0, 1, alpha = 0.4))
+points(DF.college$Books[-inTrain], DF.college$Accept[-inTrain],
+       pch = 21, col = rgb(1, 0, 0, alpha = 0.4), 
+       bg = rgb(1, 0, 0, alpha = 0.4))
+legend('topright', 
+       pch = c(16, 16), col = c('blue', 'red'), legend = c('test', 'train'))
+
+
+
+DF.college$Выборка <- 1
+DF.college$Выборка[inTrain] <- 2
+DF.college$Выборка <- as.factor(DF.college$Выборка)
+levels(DF.college$Выборка) <- c('test','train')
+
+ggplot(
+  DF.college, aes(x = Private, y = Accept)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_jitter(aes(bg = Выборка),position = position_jitter(width = .1, height = 0),
+  pch = 21, col = rgb(0, 0, 1, alpha = 0.4)
+  )
+
+```
+
+
+Построим модели для проверки точности со всеми объясняющими переменными.
+
+
+Вид моделей:
+
+$$Accept=f(PhD  + Personal + Books + Private)$$
+Линейная модель: 
+
+$$Accept=β_0+β_1⋅weihgt +β_2 Personal + β_3 Books + β_4 Private$$
+
+
+```{r, warning=FALSE}
+
+# присоединить таблицу с данными: названия стоблцов будут доступны напрямую
+attach(DF.college)
+
+# подгонка модели на обучающей выборке
+fit.lm.1_1 <- lm(Accept ~ PhD  + Personal + Books + Private, subset = inTrain)
+
+# подгонка линейной модели на обучающей выборке
+fit.lm.1_1 <- lm(Accept ~ PhD  + Personal + Books + Private, 
+               subset = inTrain)
+# прогноз на тестовую
+y.test.lm.1_1 <- predict(fit.lm.1_1, DF.college[-inTrain, ])
+
+# считаем MSE на тестовой выборке
+MSE.lm.1_1 <- mean((y.test.fact - y.test.lm.1_1)^2)
+
+# отсоединить таблицу с данными
+detach(DF.college)
+
+# смотрим ошибку
+MSE.lm.1_1
+
+```
+
+
+Строим квадратичную модель: 
+
+$$Accept = β_0+β_1PhD+β_2 Personal + β_3 Books + β_4Private + β_5 PhD ^2 + β_6 Personal^2 + β_7 Books^2 + β_8 Private^2$$
+
+
+
+```{r}
+
+# присоединить таблицу с данными: названия стоблцов будут доступны напрямую
+attach(DF.college)
+
+# подгонка модели на обучающей выборке
+fit.lm.2_1 <- lm(Accept ~ poly(PhD , 2) + poly(Personal, 2) + poly(Books, 2) + Private, subset = inTrain)
+
+# прогноз на тестовую
+y.test.lm.2_1 <- predict(fit.lm.2_1, DF.college[-inTrain, ])
+
+# считаем MSE на тестовой выборке
+MSE.lm.2_1 <- round(mean((y.test.fact - y.test.lm.2_1)^2), 2)
+
+# отсоединить таблицу с данными
+
+detach(DF.college)
+
+# смотрим ошибку
+MSE.lm.2_1
+
+```
+
+
+## Строим кубическую модель: 
+
+$$Accept=β_0+β_1PhD +β_1PhD  + β_2 Personal + β_3 Books+ β_5 Personal^2 + 
+
+β_6 Books^2+ + β_4PhD ^2  β_4PhD ^2 + β_5 Personal^2 + β_6 Books^2+β_7⋅PhD ^3+ β_8 Personal^3 + β_9 Books^3 + β_10 Private + β_11 Private^2 + β_12 Private^3$$
+
+
+ Присоединить таблицу с данными: названия стоблцов будут доступны напрямую
+
+
+```{r}
+
+attach(DF.college)
+
+# подгонка модели на обучающей выборке
+fit.lm.3_1 <- lm(Accept ~ poly(PhD , 3)  + poly(Personal, 3) + poly(Books, 3) + Private, 
+               subset = inTrain)
+
+# прогноз на тестовую
+y.test.lm.3_1 <- predict(fit.lm.3_1, DF.college[-inTrain, ])
+
+# считаем MSE на тестовой выборке
+MSE.lm.3_1 <- round(mean((y.test.fact - y.test.lm.3_1)^2), 2)
+
+# отсоединить таблицу с данными
+detach(DF.college)
+
+# смотрим ошибку
+MSE.lm.3_1
+
+```
+
+
+## Перекрёстная проверка по отдельным наблюдениям (LOOCV)
+
+Это самый затратный в вычислительном плане метод, но и самый надёжный в плане оценки ошибки вне выборки. Попробуем применить его к линейной модели.
+
+
+```{r}
+
+# подгонка линейной модели на обучающей выборке
+fit.glm_1 <- glm(Accept ~ PhD  + Personal + Books + Private, data = DF.college)
+
+# считаем LOOCV-ошибку
+cv.err_1 <- cv.glm(DF.college, fit.glm_1)
+
+# результат: первое число -- по формуле LOOCV-ошибки,
+#  второе -- с поправкой на смещение
+cv.err_1$delta[1]
+
+```
+
+
+Теперь оценим точность полиномиальных моделей, меняя степень, в которой стоит регрессор.
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  
+```{r}
+
+# вектор с LOOCV-ошибками
+cv.err.loocv_1 <- rep(0, 5)
+# имена элементов вектора
+names(cv.err.loocv_1) <- 1:5
+
+# цикл по степеням полиномов
+for (i in 1:5) {
+  # оценка модели
+  fit.glm_1 <- glm(Accept ~ poly(PhD , i)  + poly(Personal, i) + poly(Books, i) + Private, data = DF.college)
+  # расчёт ошибки
+  cv.err.loocv_1[i] <- cv.glm(DF.college, fit.glm_1)$delta[1]
+}
+
+# результат
+cv.err.loocv_1
+
+```
+
+
+
+
+
+
+Построим модели для проверки точности только c непрерывными переменными.
+
+Вид моделей:
+
+$$Accept=f(PhD  + Personal + Books)$$
+
+
+Линейная модель: 
+
+$$Accept=β_0+β_1⋅weihgt +β_2 Personal +β_3 Books$$
+
+
+
+```{r, warning=FALSE}
+
+# присоединить таблицу с данными: названия стоблцов будут доступны напрямую
+attach(DF.college)
+
+# подгонка модели на обучающей выборке
+fit.lm.1 <- lm(Accept ~ PhD  + Personal + Books, subset = inTrain)
+
+# подгонка линейной модели на обучающей выборке
+fit.lm.1 <- lm(Accept ~ PhD  + Personal + Books, 
+               subset = inTrain)
+# прогноз на тестовую
+y.test.lm.1 <- predict(fit.lm.1, DF.college[-inTrain, ])
+
+# считаем MSE на тестовой выборке
+MSE.lm.1 <- mean((y.test.fact - y.test.lm.1)^2)
+
+# отсоединить таблицу с данными
+detach(DF.college)
+
+# смотрим ошибку
+MSE.lm.1
+
+```
+
+
+Строим квадратичную модель: 
+
+$$Accept = β_0 + β_1PhD  + β_2 Personal + β_3 Books + β_4PhD ^2 + β_5 Personal^2 + β_6 Books^2$$
+
+
+```{r}
+
+# присоединить таблицу с данными: названия стоблцов будут доступны напрямую
+attach(DF.college)
+
+# подгонка модели на обучающей выборке
+fit.lm.2 <- lm(Accept ~ poly(PhD , 2) + poly(Personal, 2) + poly(Books, 2), subset = inTrain)
+
+# прогноз на тестовую
+y.test.lm.2 <- predict(fit.lm.2, DF.college[-inTrain, ])
+
+# считаем MSE на тестовой выборке
+MSE.lm.2 <- round(mean((y.test.fact - y.test.lm.2)^2), 2)
+
+# отсоединить таблицу с данными
+
+detach(DF.college)
+
+# смотрим ошибку
+MSE.lm.2
+
+```
+
+
+## Строим кубическую модель: 
+
+$$Accept=β_0+β_1PhD +β_1PhD  + β_2 Personal + β_3 Books+ β_5 Personal^2 + 
+β_6 Books^2+ + β_4PhD ^2  β_4PhD ^2 + β_5 Personal^2 + β_6 Books^2+β_7⋅PhD ^3+ β_8 Personal^3 + β_9 Books^3$$
+
+
+ Присоединить таблицу с данными: названия стоблцов будут доступны напрямую
+
+
+```{r}
+
+attach(DF.college)
+
+# подгонка модели на обучающей выборке
+fit.lm.3 <- lm(Accept ~ poly(PhD , 3)  + poly(Personal, 3) + poly(Books, 3), 
+               subset = inTrain)
+
+# прогноз на тестовую
+y.test.lm.3 <- predict(fit.lm.3, DF.college[-inTrain, ])
+
+# считаем MSE на тестовой выборке
+MSE.lm.3 <- round(mean((y.test.fact - y.test.lm.3)^2), 2)
+
+# отсоединить таблицу с данными
+detach(DF.college)
+
+# смотрим ошибку
+MSE.lm.3
+
+```
+
+
+## Перекрёстная проверка по отдельным наблюдениям (LOOCV)
+
+Это самый затратный в вычислительном плане метод, но и самый надёжный в плане оценки ошибки вне выборки. Попробуем применить его к линейной модели.
+
+
+```{r}
+
+# подгонка линейной модели на обучающей выборке
+fit.glm <- glm(Accept ~ PhD  + Personal + Books, data = DF.college)
+
+# считаем LOOCV-ошибку
+cv.err <- cv.glm(DF.college, fit.glm)
+
+# результат: первое число -- по формуле LOOCV-ошибки,
+#  второе -- с поправкой на смещение
+cv.err$delta[1]
+
+```
+
+
+Теперь оценим точность полиномиальных моделей, меняя степень, в которой стоит регрессор.
+
+
+```{r}
+
+# вектор с LOOCV-ошибками
+cv.err.loocv <- rep(0, 5)
+# имена элементов вектора
+names(cv.err.loocv) <- 1:5
+
+# цикл по степеням полиномов
+for (i in 1:5) {
+  # оценка модели
+  fit.glm <- glm(Accept ~ poly(PhD , i)  + poly(Personal, i) + poly(Books, i), data = DF.college)
+  # расчёт ошибки
+  cv.err.loocv[i] <- cv.glm(DF.college, fit.glm)$delta[1]
+}
+
+# результат
+cv.err.loocv
+
+```
+
+
+## k-кратная перекрёстная проверка
+
+K-кратная кросс-валидация – компромисс между методом проверочной выборки и LOOCV. Оценка ошибки вне выборки ближе к правде, по сравнению с проверочной выборкой, а объём вычислений меньше, чем при LOOCV. Проведём 10-ти кратную и 5-ти кратную кросс-валидацию моделей разных степеней.
+
+# 5-ти кратная 
+
+```{r}
+
+
+# оценим точность полиномиальных моделей, меняя степень
+# вектор с ошибками по 5-ти кратной кросс-валидации
+cv.err.k.fold5 <- rep(0, 5)
+# имена элементов вектора
+names(cv.err.k.fold5) <- 1:5
+
+# цикл по степеням полиномов
+for (i in 1:5) {
+  # оценка модели
+  fit.glm <- glm(Accept ~ poly(PhD , i) + poly(Personal, i) + poly(Books, i), data = DF.college)
+  # расчёт ошибки
+  cv.err.k.fold5[i] <- cv.glm(DF.college, fit.glm, K = 5)$delta[1]
+}
+
+# результат
+cv.err.k.fold5
+
+```
+
+
+# 10-ти кратная
+
+```{r}
+
+# оценим точность полиномиальных моделей, меняя степень
+# вектор с ошибками по 10-кратной кросс-валидации
+cv.err.k.fold10 <- rep(0, 5)
+# имена элементов вектора
+names(cv.err.k.fold10) <- 1:5
+
+# цикл по степеням полиномов
+for (i in 1:5) {
+  # оценка модели
+  fit.glm <- glm(Accept ~ poly(PhD , i) + poly(Personal, i) + poly(Books, i), data = DF.college)
+  # расчёт ошибки
+  cv.err.k.fold10[i] <- cv.glm(DF.college, fit.glm, K = 10)$delta[1]
+}
+
+# результат
+cv.err.k.fold10
+
+```
+
+## для модели с фиктивной переменной
+
+# 5-ти кратная 
+
+
+```{r}
+
+
+# оценим точность полиномиальных моделей, меняя степень
+# вектор с ошибками по 5-ти кратной кросс-валидации
+cv.err.k.fold5_1 <- rep(0, 5)
+# имена элементов вектора
+names(cv.err.k.fold5_1) <- 1:5
+
+# цикл по степеням полиномов
+for (i in 1:5) {
+  # оценка модели
+  fit.glm_1 <- glm(Accept ~ poly(PhD , i) + poly(Personal, i) + poly(Books, i) + Private, data = DF.college)
+  # расчёт ошибки
+  cv.err.k.fold5_1[i] <- cv.glm(DF.college, fit.glm_1, K = 5)$delta[1]
+}
+
+# результат
+cv.err.k.fold5_1
+
+```
+
+# 10-ти кратная
+
+```{r}
+
+# оценим точность полиномиальных моделей, меняя степень
+# вектор с ошибками по 10-кратной кросс-валидации
+cv.err.k.fold10_1 <- rep(0, 5)
+# имена элементов вектора
+names(cv.err.k.fold10_1) <- 1:5
+
+# цикл по степеням полиномов
+for (i in 1:5) {
+  # оценка модели
+  fit.glm_1 <- glm(Accept ~ poly(PhD , i) + poly(Personal, i) + poly(Books, i) + Private, data = DF.college)
+  # расчёт ошибки
+  cv.err.k.fold10_1[i] <- cv.glm(DF.college, fit.glm_1, K = 10)$delta[1]
+}
+
+# результат
+cv.err.k.fold10_1
+
+```
+
+Объединим все ошибки в одну таблицу и отсортируем её по возрастанию MSE (с непрерывными) и MSE.1 (со всеми обяняющими переменными):
+
+
+```{r}
+
+# записываем все ошибки в таблицу
+df.MSE <- data.frame(Модель = c('Линейная', 'Полином 2 степени',
+                                'Полином 3 степени', 
+                                rep(paste('Полином', 1:5, 'степени от Accept, PhD, Books, Personal'), 3)), 
+                     Проверка.точности = c(rep('Проверочная выборка 50%', 3),
+                                           rep('LOOCV', 5), 
+                                           rep('Кросс-валидация, k = 5', 5),
+                                           rep('Кросс-валидация, k = 10', 5)),
+                     MSE = round(c(MSE.lm.1, MSE.lm.2, MSE.lm.3, 
+                                  cv.err.loocv, cv.err.k.fold10, cv.err.k.fold5), 2))
+                
+
+# все модели по возрастанию ошибки
+df.MSE[order(df.MSE$MSE), ]
+
+```
+
+
+Опираясь на результаты расчётов с кросс-валидацией, можно заключить, что на самом деле ошибка вне выборки у линейной модели ниже, чем показывала MSE на тестовой выборке. В целом, ошибка методом кросс-валидацей при k= 5 от числа наблюдений занижает MSE и, следовательно, завышает точность моделей. 
+
+
+
+```{r}
+
+# записываем все ошибки в таблицу
+df.MSE <- data.frame(Модель = c('Линейная', 'Полином 2 степени',
+                                'Полином 3 степени', 
+                                rep(paste('Полином', 1:5, 'степени Accept, PhD, Books, Personal, Private'), 3)), 
+                     Проверка.точности = c(rep('Проверочная выборка 50%', 3),
+                                           rep('LOOCV', 5), 
+                                           rep('Кросс-валидация, k = 5', 5),
+                                           rep('Кросс-валидация, k = 10', 5)),
+                     
+                     MSE = round(c(MSE.lm.1_1, MSE.lm.2_1, MSE.lm.3_1, 
+                                  cv.err.loocv_1, cv.err.k.fold10_1, cv.err.k.fold5_1), 2))
+
+# все модели по возрастанию ошибки
+df.MSE[order(df.MSE$MSE), ]
+
+```
+
+
+Та же ситуация наблюдается и у моделей со всеми обяъсняющими переменными.
+
+
+# Бутстреп
+
+## Точность оценки параметра регрессии
+
+При построении модели регрессии проблемы в остатках приводят к неверной оценке ошибок параметров. Обойти эту проблему можно, применив для расчёта этих ошибок бутстреп.
+
+
+```{r}
+
+# Оценивание точности линейной регрессионной модели ----------------------------
+
+# оценить стандартные ошибки параметров модели 
+#  Accept = beta_0 + beta_1 * horsepower с помощью бутстрепа,
+#  сравнить с оценками ошибок по МНК
+
+# функция для расчёта коэффициентов ПЛР по выборке из данных
+boot.fn <- function(data, index){
+  coef(lm(Accept ~ PhD  + Personal + Books, data = data, subset = index))
+}
+boot.fn(DF.college, 1:n)
+
+```
+
+
+# применениe функции к бутстреп-выборке
+
+```{r}
+
+set.seed(my.seed)
+boot.fn(DF.college, sample(n, n, replace = T))
+
+```
+
+
+применяем функцию boot для вычисления стандартных ошибок параметров
+
+```{r}
+ 
+#  (1000 выборок с повторами)
+boot(DF.college, boot.fn, 1000)
+
+```
+
+
+ сравним с ошибками параметров по МНК
+
+```{r}
+# К
+summary(fit.lm.1)$coef
+summary(fit.lm.1_1)$coef
+
+```
+
+
+ график остатков модели
+
+```{r}
+ 
+plot(fit.lm.1, 3)
+plot(fit.lm.1_1, 3)
+
+```
+
+
+
+```{r}
+
+# вычислим оценки параметров квадратичной модели регрессии
+boot.fn.2 <- function(data, index){
+  coef(lm(Accept ~ poly(PhD , 2) + poly(Personal, 2) +  poly(Books, 2), data = data, subset = index))
+}
+# применим функцию к 1000 бутсреп-выборкам
+set.seed(my.seed)
+boot(DF.college, boot.fn.2, 1000)
+
+```
+
+сравним с ошибками параметров по МНК
+
+```{r}
+
+summary(fit.lm.2)$coef
+summary(fit.lm.2_1)$coef
+
+```
+
+
+график остатков модели
+
+```{r}
+
+plot(fit.lm.2, 3)
+plot(fit.lm.2_1, 3)
+
+```
+
+Нелинейность в остатках полинома третьей степени остаётся, и бутстреп-ошибки параметров модели выше, чем аналогичные МНК-оценки. 
+
+При сопоставлении ошибок параметров, полученных с помощью МНК и бутстрепом заметим, что они в какой - то степени  близки, но не эдентичны.
