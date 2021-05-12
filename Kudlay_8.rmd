@@ -1,0 +1,275 @@
+---
+title: "Упражнение 8"
+author: "Кудлай Яна"
+date: "11 05 2021"
+output: html_document
+---
+
+Необходимо построить две модели для прогноза на основе дерева решений:
+ - *для непрерывной зависимой переменной;* 
+ - *для категориальной зависимой переменной.*
+ 
+Данные и переменные указаны в таблице с вариантами.
+
+Ядро генератора случайных чисел – номер варианта.
+
+Задания Для каждой модели:
+
+1. Указать настроечные параметры метода из своего варианта (например: количество узлов, количество предикторов, скорость обучения).
+
+2. Подогнать модель на обучающей выборке (50% наблюдений). Рассчитать MSE на тестовой выборке.
+
+3. Перестроить модель с помощью метода, указанного в варианте.
+
+4. Сделать прогноз по модели с подобранными в п.3 параметрами на тестовой выборке, оценить его точность и построить график «прогноз-реализация».
+
+Как сдавать: прислать на почту преподавателя ссылки: * на html-отчёт с видимыми блоками кода (блоки кода с параметром echo = T), размещённый на rpubs.com.
+* на код, генерирующий отчёт, в репозитории на github.com. В текст отчёта включить постановку задачи и ответы на вопросы задания.
+
+## Вариант 16
+
+ - Метод подгонки моделей: бустинг
+
+ - Данные: *Carseats{ISLR}*
+
+```{r setup, include=FALSE}
+library('tree')              # деревья tree()
+library('ISLR')              # набор данных Carseats
+library('GGally')            # матричный график разброса ggpairs()
+#library('MASS')              # набор данных Boston
+library('randomForest')      # случайный лес randomForest()
+library('gbm')               # бустинг gbm()
+library('class')
+data(Carseats)
+
+# Ядро генератора случайных чисел
+my.seed <- 16
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+str(Carseats)
+head(Carseats)
+```
+
+# Модель 1 (для непрерывной зависимой переменной Carseats)
+
+
+
+```{r}
+# матричные графики разброса переменных
+p <- ggpairs(Carseats[, c(1, 2:5)])
+suppressMessages(print(p))
+
+p <- ggpairs(Carseats[, c(1, 6:11)])
+suppressMessages(print(p))
+
+```
+
+```{r}
+# Обучающая выборка
+set.seed(my.seed)
+# Обучающая выборка - 50%
+train <- sample(1:nrow(Carseats), nrow(Carseats)/2)
+```
+
+Построим дерево регрессии для зависимой переменной Sales.
+
+```{r}
+# Обучаем модель
+tree.sales <- tree(Sales ~ ., Carseats, subset = train)
+summary(tree.sales)
+```
+
+```{r}
+# Визуализация
+plot(tree.sales)
+text(tree.sales, pretty = 0)
+
+tree.sales                    # Посмотреть всё дерево в консоли
+```
+
+```{r}
+# Прогноз по модели 
+yhat <- predict(tree.sales, newdata = Carseats[-train, ])
+sales.test <- Carseats[-train, "Sales"]
+
+# MSE на тестовой выборке
+mse.test <- mean((yhat - sales.test)^2)
+names(mse.test)[length(mse.test)] <- 'Carseats.regr.tree.all'
+mse.test
+
+# Точность прогноза на тестовой выборке
+acc.test <- sum(abs(yhat-sales.test))/sum(sales.test)
+names(acc.test)[length(acc.test)] <- 'Carseats.regr.tree.all'
+acc.test
+```
+
+#Бустинг (модель 1)
+
+Проведем бустинг с целью улучшения модели
+
+```{r}
+set.seed(my.seed)
+boost.Carseats <- gbm(Sales ~ ., data = Carseats[train, ], distribution = "gaussian",
+                    n.trees = 5000, interaction.depth = 4)
+# График и таблица относительной важности переменных
+summary(boost.Carseats)
+```
+
+```{r}
+# прогноз
+yhat.boost <- predict(boost.Carseats, newdata = Carseats[-train, ], n.trees = 5000)
+
+# MSE на тестовой
+mse.test <- c(mse.test, mean((yhat.boost - sales.test)^2))
+names(mse.test)[length(mse.test)] <- 'Carseats.boost.opt'
+mse.test
+
+# Точность прогноза на тестовой выборке
+acc.test <- c(acc.test, sum(abs(yhat.boost-sales.test))/sum(sales.test))
+names(acc.test)[length(acc.test)] <- 'Carseats.regr.tree'
+acc.test
+```
+
+```{r}
+# Меняем значение гиперпараметра (lambda) на 0.1 -- аргумент shrinkage
+boost.Carseats <- gbm(Sales ~ ., data = Carseats[train, ], distribution = "gaussian",
+                    n.trees = 5000, interaction.depth = 4, 
+                    shrinkage = 0.1, verbose = F)
+
+# Прогноз
+yhat.boost <- predict(boost.Carseats, newdata = Carseats[-train, ], n.trees = 5000)
+
+# MSE а тестовой
+mse.test <- c(mse.test, mean((yhat.boost - sales.test)^2))
+names(mse.test)[length(mse.test)] <- 'Carseats.boost.0.1'
+mse.test
+
+# Точность прогноза на тестовой выборке
+acc.test <- c(acc.test, sum(abs(yhat.boost-sales.test))/sum(sales.test))
+names(acc.test)[length(acc.test)] <- 'Carseats.regr.tree.0.1'
+acc.test
+```
+
+```{r}
+# График "прогноз - реализация"
+plot(yhat.boost, sales.test)
+# линия идеального прогноза
+abline(0, 1) 
+```
+
+Судя по результатам изменение lambda на 0.1 немного повысило ошибку прогноза, поэтому оставим его без измененией. MSE модели (с бустингом) без указания lambda на тестовой выборке равна 2.31, точность прогноза составила 0.1.
+
+```{r}
+# прогноз
+yhat.boost <- predict(boost.Carseats, newdata = Carseats[-train, ], n.trees = 5000)
+
+# MSE на тестовой
+mse.test <- c(mse.test, mean((yhat.boost - sales.test)^2))
+names(mse.test)[length(mse.test)] <- 'Carseats.boost.opt'
+mse.test
+```
+
+
+# Модель 2 (для категориальной зависимой переменной high.medv) 
+Загрузим таблицу с данными по параметрам автомобилей и добавим к ней переменную high.Sales – “высокий расход топлива” со значениями:
+
+1, если Sales >= 9.3
+0, если Sales < 9.3
+
+```{r}
+# новая переменная
+high.Sales <- ifelse(Carseats$Sales >= 9.3, 1, 0)
+high.Sales <- factor(high.Sales, labels = c('yes', 'no'))
+Carseats$high.Sales <- high.Sales 
+# матричные графики разброса переменных
+p <- ggpairs(Carseats[, c(1, 1:5)], aes(color = high.Sales))
+suppressMessages(print(p))
+
+p <- ggpairs(Carseats[, c(1, 6:9)], aes(color = high.Sales))
+suppressMessages(print(p))
+```
+
+
+```{r}
+# модель бинарного  дерева без переменных Sales
+tree.sales <- tree(high.Sales ~ .-Sales, Carseats)
+summary(tree.sales)
+```
+
+```{r}
+# график результата:
+# ветви
+plot(tree.sales)
+# добавим подписи
+text(tree.sales, pretty = 0)
+
+# посмотреть всё дерево в консоли
+tree.sales   
+```
+
+Теперь построим дерево на обучающей выборке и оценим ошибку на тестовой.
+
+```{r}
+# ядро генератора случайных чисел по номеру варианта
+set.seed(my.seed)
+
+# обучающая выборка 50%
+train <- sample(1:nrow(Carseats), 200) #nrow(Carseats)*0.5 - даёт слишком мало узлов
+
+# тестовая выборка
+sales.test <- Carseats[-train,]
+high.Sales.test <- high.Sales[-train]
+
+# строим дерево на обучающей выборке
+tree.sales <- tree(high.Sales ~ .-Sales, Carseats, subset = train)
+summary(tree.sales)
+```
+
+```{r}
+# делаем прогноз
+tree.pred <- predict(tree.sales, sales.test, type = "class")
+
+# матрица неточностей
+tbl <- table(tree.pred, high.Sales.test)
+tbl
+```
+
+```{r}
+# ACC на тестовой
+acc.test <- sum(diag(tbl))/sum(tbl)
+names(acc.test)[length(acc.test)] <- 'Carseats.class.tree.all'
+acc.test
+```
+
+Обобщённая характеристика точности: доля верных прогнозов: 0,815
+
+# Бустинг (модель 2)
+
+```{r}
+set.seed(my.seed)
+boost.Carseats <- gbm(high.Sales ~ . -Sales, data = Carseats[train, ], distribution = "gaussian",
+                    n.trees = 5000, interaction.depth = 4)
+# График и таблица относительной важности переменных
+summary(boost.Carseats) 
+```
+
+```{r}
+# прогноз
+yhat.boost <- predict(boost.Carseats, newdata = Carseats[-train, ], n.trees = 5000)
+
+# MSE на тестовой
+mse.test.2 <- mean((yhat.boost - sales.test)^2)
+names(mse.test.2)[length(mse.test.2)] <- 'Carseats.boost.opt.model.2'
+mse.test.2
+```
+
+
+```{r}
+# График "прогноз - реализация"
+plot(yhat.boost, Carseats$high.Sales[-train])
+```
+
